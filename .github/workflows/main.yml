@@ -1,9 +1,22 @@
+# CI failure → n8n webhook notification
+#
+# Required repository secrets:
+#   N8N_WEBHOOK_URL      Full webhook URL (e.g. https://<host>/webhook/<path>)
+#   N8N_WEBHOOK_SECRET   Shared secret sent in the x-webhook-secret header
+#
+# Confirmed original payload fields: run_id, repo, branch, commit, actor, owner
+# Extra fields below (run_url, event_name, workflow) are additive helpers for n8n.
+
 name: CI pipeline
 
 on:
   push:
     branches:
       - main
+  # Optional: also run on PRs targeting main (uncomment if desired)
+  # pull_request:
+  #   branches:
+  #     - main
 
 jobs:
   build-and-test:
@@ -11,15 +24,19 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - name: install node Deps
+          node-version: "20"
+
+      - name: Install dependencies
         run: npm install
-      - name: run test
+
+      - name: Run smoke test
         run: npm test
-      - name: build project
+
+      - name: Build project
         run: npm run build --if-present
 
   notify-n8n-on-failure:
@@ -27,16 +44,39 @@ jobs:
     needs: build-and-test
     if: failure()
     steps:
-      - name: trigger n8n webhook
-        run: |  
-          curl -X POST "${{ secrets.N8N_WEBHOOK_URL }}" \
+      - name: Validate webhook configuration
+        env:
+          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+          N8N_WEBHOOK_SECRET: ${{ secrets.N8N_WEBHOOK_SECRET }}
+        run: |
+          if [ -z "$N8N_WEBHOOK_URL" ]; then
+            echo "::error::Missing secret N8N_WEBHOOK_URL. Set it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          if [ -z "$N8N_WEBHOOK_SECRET" ]; then
+            echo "::error::Missing secret N8N_WEBHOOK_SECRET. Set it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "Webhook secrets are present."
+
+      - name: Trigger n8n webhook
+        env:
+          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+          N8N_WEBHOOK_SECRET: ${{ secrets.N8N_WEBHOOK_SECRET }}
+        run: |
+          curl --fail-with-body -sS -X POST "${N8N_WEBHOOK_URL}" \
             -H "Content-Type: application/json" \
-            -H "x-webhook-secret: ${{ secrets.N8N_WEBHOOK_SECRET }}" \
-            -d '{
-              "run_id": "${{ github.run_id }}",
-              "repo": "${{ github.repository }}",
-              "branch": "${{ github.ref_name }}",
-              "commit": "${{ github.sha }}",
-              "actor": "${{ github.actor }}",
-              "owner": "${{  github.repository_owner  }}"
-            }'
+            -H "x-webhook-secret: ${N8N_WEBHOOK_SECRET}" \
+            -d @- <<EOF
+          {
+            "run_id": "${{ github.run_id }}",
+            "repo": "${{ github.repository }}",
+            "branch": "${{ github.ref_name }}",
+            "commit": "${{ github.sha }}",
+            "actor": "${{ github.actor }}",
+            "owner": "${{ github.repository_owner }}",
+            "event_name": "${{ github.event_name }}",
+            "workflow": "${{ github.workflow }}",
+            "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          }
+          EOF

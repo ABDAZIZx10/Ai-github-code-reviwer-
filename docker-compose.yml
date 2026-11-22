@@ -1,0 +1,37 @@
+# Local n8n for reconstructing the CI → LLM review pipeline.
+# This does NOT restore the original lost cloud workflow by itself.
+#
+# Usage:
+#   docker compose up -d
+#   open http://localhost:5678
+#   Import n8n/workflow.reconstructed.json
+#
+# Persist workflows by keeping the named volume; do not discard it.
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-UTC}
+      - N8N_BASIC_AUTH_ACTIVE=${N8N_BASIC_AUTH_ACTIVE:-true}
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-change-me-now}
+      # Optional: pre-seed for Code nodes / expressions (also configure in n8n UI)
+      - WEBHOOK_SHARED_SECRET=${N8N_WEBHOOK_SECRET:-}
+      - GITHUB_APP_CLIENT_ID=${GITHUB_APP_CLIENT_ID:-}
+      - GITHUB_APP_INSTALLATION_ID=${GITHUB_APP_INSTALLATION_ID:-}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      # Mount private key read-only if you generate JWTs inside n8n Code nodes.
+      # Place your key at ./secrets/github-app-private-key.pem (gitignored).
+      - ./secrets:/secrets:ro
+
+volumes:
+  n8n_data:

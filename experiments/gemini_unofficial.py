@@ -1,3 +1,10 @@
+"""
+EXPERIMENTAL / UNOFFICIAL — not part of the production CI → n8n pipeline.
+
+Scrapes the Gemini web UI. Requires a live session cookie and is brittle.
+Prefer an official LLM API configured as an n8n credential.
+"""
+
 import requests
 import json
 import urllib.parse

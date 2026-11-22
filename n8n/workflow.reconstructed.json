@@ -1,0 +1,209 @@
+{
+  "name": "CI Failure → LLM Code Review (RECONSTRUCTED)",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "description": "RECONSTRUCTED from surviving GitHub Actions payload + GitHub App evidence. NOT the original lost workflow. Configure credentials before activating."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ci-failure-review",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-trigger-001",
+      "name": "Webhook CI Failure",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "ci-failure-review"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate shared secret from GitHub Actions header x-webhook-secret\nconst expected = $env.WEBHOOK_SHARED_SECRET || '';\nconst headers = $json.headers || {};\nconst provided = headers['x-webhook-secret'] || headers['X-Webhook-Secret'] || '';\n\nif (!expected) {\n  throw new Error('WEBHOOK_SHARED_SECRET is not set in the n8n environment');\n}\nif (provided !== expected) {\n  throw new Error('Invalid x-webhook-secret');\n}\n\nconst body = $json.body || $json;\nconst required = ['run_id', 'repo', 'branch', 'commit', 'actor', 'owner'];\nfor (const key of required) {\n  if (!body[key]) {\n    throw new Error(`Missing required payload field: ${key}`);\n  }\n}\n\nreturn [{ json: { ...body, secret_ok: true } }];"
+      },
+      "id": "code-auth-002",
+      "name": "Validate Secret + Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// CONFIGURE: Prefer minting the JWT inside n8n with your App private key,\n// or replace this node with a pre-minted installation token credential.\n// This reconstructed flow expects an installation token provided via env for simplicity.\nconst token = $env.GITHUB_INSTALLATION_TOKEN || '';\nif (!token) {\n  throw new Error('Set GITHUB_INSTALLATION_TOKEN (mint via scripts/mint_installation_token.sh) or replace this node with GitHub App JWT → installation token HTTP calls. See docs/reconstruction-guide.md');\n}\nreturn [{ json: { ...$json, installation_token: token } }];"
+      },
+      "id": "code-token-003",
+      "name": "CONFIGURE GitHub Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{$json.repo}}/commits/{{$json.commit}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.installation_token}}"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-commit-004",
+      "name": "GET Commit + Files",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 180],
+      "notes": "Confirmed intent: n8n detected multiple changed files. Exact original node unverified."
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{$json.repo}}/actions/runs/{{$json.run_id}}/jobs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('CONFIGURE GitHub Token').item.json.installation_token}}"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-jobs-005",
+      "name": "GET Workflow Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 420],
+      "notes": "Assumption: jobs/logs were fetched server-side because GHA webhook did not include log text."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge GitHub context for the LLM prompt.\nconst base = $('CONFIGURE GitHub Token').item.json;\nconst commit = $('GET Commit + Files').item.json;\nconst jobs = $('GET Workflow Jobs').item.json;\n\nconst files = (commit.files || []).map(f => ({\n  filename: f.filename,\n  status: f.status,\n  patch: (f.patch || '').slice(0, 4000)\n}));\n\nconst jobSummary = (jobs.jobs || []).map(j => ({\n  name: j.name,\n  conclusion: j.conclusion,\n  html_url: j.html_url\n}));\n\nconst prompt = [\n  'You are a senior code reviewer. CI failed. Produce a structured review with:',\n  '1) assessment scores (1-10) for correctness, maintainability, test quality, security',\n  '2) identified issues with file references',\n  '3) concrete suggested fixes',\n  '',\n  `Repo: ${base.repo}`,\n  `Branch: ${base.branch}`,\n  `Commit: ${base.commit}`,\n  `Actor: ${base.actor}`,\n  `Run: ${base.run_id}`,\n  '',\n  'Changed files:',\n  JSON.stringify(files, null, 2),\n  '',\n  'Job results:',\n  JSON.stringify(jobSummary, null, 2)\n].join('\\n');\n\nreturn [{\n  json: {\n    ...base,\n    files,\n    jobSummary,\n    prompt,\n    commit_message: commit.commit?.message || ''\n  }\n}];"
+      },
+      "id": "code-prompt-006",
+      "name": "Build LLM Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 300],
+      "notes": "ILLUSTRATIVE prompt. Original prompt text is missing and must be rewritten."
+    },
+    {
+      "parameters": {
+        "jsCode": "// CONFIGURE: Replace this stub with an official LLM node (OpenAI / Google Gemini / Anthropic).\n// The original provider and prompt were not recovered.\nconst prompt = $json.prompt;\nconst stub = [\n  '## CI Failure Review (stub — replace with real LLM node)',\n  '',\n  'Prompt length: ' + prompt.length + ' chars',\n  'Files: ' + ($json.files || []).map(f => f.filename).join(', '),\n  '',\n  'Configure an LLM credential in n8n and swap this node for a real model call.'\n].join('\\n');\n\nreturn [{ json: { ...$json, review_markdown: stub } }];"
+      },
+      "id": "code-llm-007",
+      "name": "CONFIGURE LLM Call (stub)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{$json.repo}}/commits/{{$json.commit}}/comments",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.installation_token}}"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": {{ JSON.stringify($json.review_markdown) }}\n}",
+        "options": {}
+      },
+      "id": "http-comment-008",
+      "name": "Post Commit Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 300],
+      "notes": "Assumption: feedback was posted via GitHub API. Commit comment chosen because the GHA trigger is push-to-main; PR review is an equally valid alternative."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, commit: $json.commit, files: ($json.files || []).length } }}",
+        "options": {}
+      },
+      "id": "respond-009",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1820, 300]
+    }
+  ],
+  "connections": {
+    "Webhook CI Failure": {
+      "main": [[{ "node": "Validate Secret + Payload", "type": "main", "index": 0 }]]
+    },
+    "Validate Secret + Payload": {
+      "main": [[{ "node": "CONFIGURE GitHub Token", "type": "main", "index": 0 }]]
+    },
+    "CONFIGURE GitHub Token": {
+      "main": [[{ "node": "GET Commit + Files", "type": "main", "index": 0 }]]
+    },
+    "GET Commit + Files": {
+      "main": [[{ "node": "GET Workflow Jobs", "type": "main", "index": 0 }]]
+    },
+    "GET Workflow Jobs": {
+      "main": [[{ "node": "Build LLM Prompt", "type": "main", "index": 0 }]]
+    },
+    "Build LLM Prompt": {
+      "main": [[{ "node": "CONFIGURE LLM Call (stub)", "type": "main", "index": 0 }]]
+    },
+    "CONFIGURE LLM Call (stub)": {
+      "main": [[{ "node": "Post Commit Comment", "type": "main", "index": 0 }]]
+    },
+    "Post Commit Comment": {
+      "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "reconstructed"
+    },
+    {
+      "name": "not-original"
+    }
+  ]
+}

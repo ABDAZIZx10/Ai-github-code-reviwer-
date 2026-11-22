@@ -1,0 +1,9 @@
+{
+  "_comment": "Fields confirmed present in the original GitHub Actions workflow before salvage. Additive fields (event_name, workflow, run_url) were introduced during documentation salvage and are optional for n8n.",
+  "run_id": "12345678901",
+  "repo": "OWNER/REPO",
+  "branch": "main",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "actor": "github-username",
+  "owner": "OWNER"
+}

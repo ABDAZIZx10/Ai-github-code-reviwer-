@@ -1,3 +1,40 @@
-node_modules
+# Dependencies
+node_modules/
+
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
 notes.txt
-ci-cd-reviewer.2026-06-25.private-key.pem
+*.pem
+*.key
+!*.example.key
+
+# GitHub App private keys (any naming)
+*private-key*.pem
+*private-key*.key
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# n8n local data (docker volume bind mounts)
+n8n_data/
+
+# Temporary / generated
+tmp/
+temp/
+dist/
+coverage/
+*.jwt
+*.token

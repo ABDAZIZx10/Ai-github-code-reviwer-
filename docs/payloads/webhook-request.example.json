@@ -1,0 +1,11 @@
+{
+  "run_id": "12345678901",
+  "repo": "OWNER/REPO",
+  "branch": "main",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "actor": "github-username",
+  "owner": "OWNER",
+  "event_name": "push",
+  "workflow": "CI pipeline",
+  "run_url": "https://github.com/OWNER/REPO/actions/runs/12345678901"
+}
